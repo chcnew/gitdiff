@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyEvent, MouseEvent};
 
 use crate::git::types::{
     BranchInfo, CommitFile, CommitInfo, DiffSides, DirEntry, FileChange,
@@ -11,6 +11,7 @@ use crate::git::types::{
 pub enum Action {
     Tick,
     Key(KeyEvent),
+    Mouse(MouseEvent),
     Resize,
 
     // 仓库

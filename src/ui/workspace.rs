@@ -5,15 +5,15 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, CenterView, InputMode, LeftTab, Panel};
-use crate::ui::{branches, changes, command, diff, editor, filetree, history, style};
+use crate::ui::{bordered_inner, branches, changes, command, diff, editor, filetree, history, style};
 
-pub fn draw(f: &mut Frame, app: &App) {
+const LEFT_PCT: u16 = 22;
+const RIGHT_PCT: u16 = 22;
+
+pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
-    let show_input = matches!(
-        app.input_mode,
-        InputMode::Commit | InputMode::Branch | InputMode::Command
-    );
+    let show_input = matches!(app.input_mode, InputMode::Commit | InputMode::Branch);
     let terminal_h = if app.runner.visible {
         Constraint::Percentage(app.runner.height_percent)
     } else {
@@ -36,8 +36,32 @@ pub fn draw(f: &mut Frame, app: &App) {
         ])
         .split(area);
 
+    // 主区三栏：左 / 中（差异） / 右，中间差异区占比最大
+    let main = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(LEFT_PCT),
+            Constraint::Min(1),
+            Constraint::Percentage(RIGHT_PCT),
+        ])
+        .split(chunks[1]);
+
+    // 记录区域，供鼠标命中测试
+    app.rects.left = main[0];
+    app.rects.center = main[1];
+    app.rects.history = main[2];
+    app.rects.terminal = chunks[2];
+    app.rects.history_list = bordered_inner(main[2]);
+    let left_v = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .split(main[0]);
+    app.rects.left_list = bordered_inner(left_v[1]);
+
     draw_top_bar(f, app, chunks[0]);
-    draw_main(f, app, chunks[1]);
+    draw_left(f, app, main[0]);
+    draw_center(f, app, main[1]);
+    history::draw(f, app, main[2]);
     if app.runner.visible {
         command::draw(f, app, chunks[2]);
     }
@@ -60,21 +84,6 @@ fn draw_top_bar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         Span::styled(" ?帮助 t终端 b分支 P推送 F拉取 x关闭 q退出", style::dim()),
     ]);
     f.render_widget(Paragraph::new(line), area);
-}
-
-fn draw_main(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(30),
-            Constraint::Min(1),
-            Constraint::Percentage(30),
-        ])
-        .split(area);
-
-    draw_left(f, app, chunks[0]);
-    draw_center(f, app, chunks[1]);
-    history::draw(f, app, chunks[2]);
 }
 
 fn draw_left(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
@@ -122,7 +131,6 @@ fn draw_input_bar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let (label, text) = match app.input_mode {
         InputMode::Commit => (" 提交信息 ", app.input.as_str()),
         InputMode::Branch => (" 新分支名 ", app.input.as_str()),
-        InputMode::Command => (" $ ", app.input.as_str()),
         _ => ("", app.input.as_str()),
     };
     let line = Line::from(vec![

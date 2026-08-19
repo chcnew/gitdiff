@@ -4,9 +4,9 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, InputMode};
-use crate::ui::{style, window_start};
+use crate::ui::{bordered_inner, style, window_start};
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -28,6 +28,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     f.render_widget(title, chunks[0]);
 
     let list_area = chunks[1];
+    app.rects.recent_list = bordered_inner(list_area);
     let height = list_area.height as usize;
     let mut lines: Vec<Line> = Vec::new();
     if app.recent_list.is_empty() {

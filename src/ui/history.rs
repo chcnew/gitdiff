@@ -30,8 +30,9 @@ fn draw_commits(f: &mut Frame, app: &App, area: Rect) {
     if commits.is_empty() {
         lines.push(Line::from(Span::styled("（无提交）", style::dim())));
     } else {
-        let start = window_start(commits.len(), app.history.selected, height);
-        for (i, c) in commits.iter().enumerate().skip(start).take(height) {
+        let vis = (height / 2).max(1);
+        let start = window_start(commits.len(), app.history.selected, vis);
+        for (i, c) in commits.iter().enumerate().skip(start).take(vis) {
             let is_sel = i == app.history.selected && app.focus == Panel::History;
             let row = if is_sel { style::selected() } else { style::fg() };
             lines.push(Line::from(vec![

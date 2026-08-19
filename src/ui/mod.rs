@@ -15,7 +15,7 @@ use ratatui::Frame;
 
 use crate::app::{App, Mode};
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     match app.mode {
         Mode::Welcome => welcome::draw(f, app),
         Mode::Workspace => workspace::draw(f, app),
@@ -23,6 +23,16 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     if app.help_open {
         help::draw(f);
+    }
+}
+
+/// 带 `Borders::ALL` 边框的块，其内容区为向内收缩 1 格。
+pub fn bordered_inner(area: Rect) -> Rect {
+    Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
     }
 }
 

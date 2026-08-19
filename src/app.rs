@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use notify::RecommendedWatcher;
+use ratatui::layout::{Position, Rect};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::diff::{side_by_side, DiffRow, DiffTag};
@@ -170,6 +171,32 @@ impl Default for DiffState {
     }
 }
 
+/// 各面板区域（上一帧计算，供鼠标命中测试）。
+#[derive(Debug, Clone, Copy)]
+pub struct Rects {
+    pub left: Rect,
+    pub center: Rect,
+    pub history: Rect,
+    pub terminal: Rect,
+    pub left_list: Rect,
+    pub history_list: Rect,
+    pub recent_list: Rect,
+}
+
+impl Default for Rects {
+    fn default() -> Self {
+        Rects {
+            left: Rect::new(0, 0, 0, 0),
+            center: Rect::new(0, 0, 0, 0),
+            history: Rect::new(0, 0, 0, 0),
+            terminal: Rect::new(0, 0, 0, 0),
+            left_list: Rect::new(0, 0, 0, 0),
+            history_list: Rect::new(0, 0, 0, 0),
+            recent_list: Rect::new(0, 0, 0, 0),
+        }
+    }
+}
+
 pub struct App {
     pub tx: UnboundedSender<Action>,
     pub mode: Mode,
@@ -201,6 +228,7 @@ pub struct App {
     pub help_open: bool,
     pub should_quit: bool,
     pub watcher: Option<RecommendedWatcher>,
+    pub rects: Rects,
 }
 
 impl App {
@@ -234,6 +262,7 @@ impl App {
             help_open: false,
             should_quit: false,
             watcher: None,
+            rects: Rects::default(),
         }
     }
 
@@ -241,6 +270,7 @@ impl App {
         match action {
             Action::Tick => self.runner.poll(),
             Action::Key(key) => self.handle_key(key),
+            Action::Mouse(mouse) => self.handle_mouse(mouse),
             Action::Resize => {}
             Action::RepoOpened { path, name } => self.on_repo_opened(path, name),
             Action::StatusLoaded(items) => {
@@ -633,6 +663,7 @@ impl App {
             KeyCode::Char('i') | KeyCode::Enter => {
                 self.input_mode = InputMode::Command;
                 self.input.clear();
+                self.runner.visible = true;
             }
             _ => {}
         }
@@ -1178,6 +1209,138 @@ impl App {
         };
     }
 
+    // ---- 鼠标 ----
+
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        if self.help_open {
+            self.help_open = false;
+            return;
+        }
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => self.click(mouse.column, mouse.row),
+            MouseEventKind::ScrollUp => self.scroll(-1),
+            MouseEventKind::ScrollDown => self.scroll(1),
+            _ => {}
+        }
+    }
+
+    fn click(&mut self, x: u16, y: u16) {
+        if self.mode == Mode::Welcome {
+            if self.rects.recent_list.contains(Position::new(x, y)) {
+                let idx = (y - self.rects.recent_list.y) as usize;
+                let start = crate::ui::window_start(
+                    self.recent_list.len(),
+                    self.recent_selected,
+                    self.rects.recent_list.height as usize,
+                );
+                let target = start + idx;
+                if target < self.recent_list.len() {
+                    self.recent_selected = target;
+                }
+            }
+            return;
+        }
+
+        if self.runner.visible && self.rects.terminal.contains(Position::new(x, y)) {
+            self.focus = Panel::Terminal;
+        } else if self.rects.left.contains(Position::new(x, y)) {
+            self.focus = Panel::Left;
+            self.click_left(x, y);
+        } else if self.rects.center.contains(Position::new(x, y)) {
+            self.focus = Panel::Center;
+        } else if self.rects.history.contains(Position::new(x, y)) {
+            self.focus = Panel::History;
+            self.click_history(x, y);
+        }
+    }
+
+    fn click_left(&mut self, x: u16, y: u16) {
+        let list = self.rects.left_list;
+        if !list.contains(Position::new(x, y)) {
+            return;
+        }
+        let idx = (y - list.y) as usize;
+        match self.left_tab {
+            LeftTab::Changes => {
+                let start =
+                    crate::ui::window_start(self.changes.items.len(), self.changes.selected, list.height as usize);
+                let target = start + idx;
+                if target < self.changes.items.len() {
+                    self.changes.selected = target;
+                }
+            }
+            LeftTab::Files => {
+                let flat = self.filetree.flat();
+                let start = crate::ui::window_start(flat.len(), self.filetree.selected, list.height as usize);
+                let target = start + idx;
+                if target < flat.len() {
+                    self.filetree.selected = target;
+                }
+            }
+        }
+    }
+
+    fn click_history(&mut self, x: u16, y: u16) {
+        let list = self.rects.history_list;
+        if !list.contains(Position::new(x, y)) {
+            return;
+        }
+        let row = (y - list.y) as usize;
+        if self.history.in_files {
+            let start =
+                crate::ui::window_start(self.history.files.len(), self.history.files_selected, list.height as usize);
+            let target = start + row;
+            if target < self.history.files.len() {
+                self.history.files_selected = target;
+            }
+        } else {
+            let height = (list.height as usize) / 2;
+            let start = crate::ui::window_start(self.history.commits.len(), self.history.selected, height);
+            let target = start + row / 2;
+            if target < self.history.commits.len() {
+                self.history.selected = target;
+            }
+        }
+    }
+
+    fn scroll(&mut self, dir: i32) {
+        match (self.mode, self.focus) {
+            (Mode::Welcome, _) => {
+                self.recent_selected = move_idx(self.recent_selected, dir, self.recent_list.len());
+            }
+            (Mode::Workspace, Panel::Left) => match self.left_tab {
+                LeftTab::Changes => {
+                    self.changes.selected = move_idx(self.changes.selected, dir, self.changes.items.len());
+                }
+                LeftTab::Files => {
+                    let len = self.filetree.flat().len();
+                    self.filetree.selected = move_idx(self.filetree.selected, dir, len);
+                }
+            },
+            (Mode::Workspace, Panel::Center) => match self.center_view {
+                CenterView::Diff => self.diff.scroll = add_scroll(self.diff.scroll, dir),
+                CenterView::HistoryDiff => {
+                    self.history.detail_scroll = add_scroll(self.history.detail_scroll, dir);
+                }
+                CenterView::Editor => {
+                    let len = self.editor.lines.len();
+                    self.editor.cursor_line = move_idx(self.editor.cursor_line, dir, len);
+                    self.clamp_editor_col();
+                }
+            },
+            (Mode::Workspace, Panel::History) => {
+                if self.history.in_files {
+                    self.history.files_selected = move_idx(self.history.files_selected, dir, self.history.files.len());
+                } else {
+                    self.history.selected = move_idx(self.history.selected, dir, self.history.commits.len());
+                }
+            }
+            (Mode::Workspace, Panel::Terminal) => {
+                self.runner.scroll = add_scroll(self.runner.scroll, dir);
+            }
+        }
+    }
+
     // ---- 刷新 ----
 
     fn reload_all(&mut self) {
@@ -1249,6 +1412,25 @@ impl App {
                 entries,
             });
         });
+    }
+}
+
+fn move_idx(cur: usize, dir: i32, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    if dir > 0 {
+        (cur + 1).min(len - 1)
+    } else {
+        cur.saturating_sub(1)
+    }
+}
+
+fn add_scroll(cur: usize, dir: i32) -> usize {
+    if dir > 0 {
+        cur + 1
+    } else {
+        cur.saturating_sub(1)
     }
 }
 

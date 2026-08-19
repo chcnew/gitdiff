@@ -19,7 +19,9 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let output = &app.runner.output;
     let total = output.len();
     let body_h = height.saturating_sub(1);
-    let start = if total > body_h { total - body_h } else { 0 };
+    let tail_start = total.saturating_sub(body_h);
+    let scroll = app.runner.scroll.min(tail_start);
+    let start = tail_start - scroll;
 
     let mut lines: Vec<Line> = output
         .iter()

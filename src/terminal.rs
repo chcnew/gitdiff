@@ -18,6 +18,7 @@ pub struct CmdRunner {
     pub history: Vec<String>,
     pub hist_idx: Option<usize>,
     pub running: bool,
+    pub scroll: usize,
     child: Option<Child>,
 }
 
@@ -31,6 +32,7 @@ impl CmdRunner {
             history: Vec::new(),
             hist_idx: None,
             running: false,
+            scroll: 0,
             child: None,
         }
     }
@@ -44,6 +46,7 @@ impl CmdRunner {
         self.history.push(cmdline.to_string());
         self.hist_idx = None;
         self.input.clear();
+        self.scroll = 0;
 
         #[cfg(windows)]
         let mut cmd = {
