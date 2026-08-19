@@ -1,0 +1,17 @@
+# Rust / Cargo
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# 运行时产物
+/logs
+recent-projects.json
+
+# 编辑器 / IDE
+.idea/
+.vscode/
+*.iml
+
+# 系统
+.DS_Store
+Thumbs.db
